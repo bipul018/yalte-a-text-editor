@@ -183,9 +183,13 @@
 	when (funcall fxn key)
 	collect key))
 
+;; In the cases below, there is a problem wherein the 'locks' are freed and then
+;;    'with-lock-held' is called sometimes
+
 ;; Given an alist of vars, setfs the given var with mutex locked
 ;; Expects the mutex to be yet another var with a particular name 'var-lock'
 (defun replace-var-locked (var-list var-sym new-val)
+  ;; TODO:: To be replaced with something like conditional var later
   (bt2:with-lock-held ((assoc-val 'var-lock var-list))
     (let ((old-val (assoc-val var-sym var-list)))
       (setf (assoc-val var-sym var-list) new-val)
@@ -193,6 +197,7 @@
 
 ;; Used to atomically append items to the list, assumes 'var-sym' is pointing to a list 
 (defun append-var-locked (var-list var-sym new-val)
+  ;; TODO:: To be replaced with something like conditional var later
   (bt2:with-lock-held ((assoc-val 'var-lock var-list))
     (let ((old-val (assoc-val var-sym var-list)))
       (setf (assoc-val var-sym var-list) (append old-val new-val))
@@ -289,13 +294,13 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   ;; TODO:: Doing this copy-list is not working
   ;;        at the very least, 'cursor-pos' is shared between runs
   ;;        one possible soln is using , for each value, probably it all is set in stone at compile time otherwise
-  (let ((vars (copy-list `((win-w . ,win-w) (win-h . ,win-h) (to-quit . nil)
-			   (bg-col . ,bg-col) (txt-col . :black)
+  ;; TODO:: If not called stop, does something weird to next run
+  (let ((vars (copy-list `((win-w . ,win-w) (win-h . ,win-h) (to-quit . ,nil)
+			   (bg-col . ,bg-col) (txt-col . ,:black)
 			   (var-lock . ,(bt2:make-lock))
 			   (key-press-queue . ,nil) (key-press-list . ,nil)
 			   (cursor-pos . ,(cons 0 0))
-			   (text-poses . ())))))
-    (let ((cxt (cons (start-thrd 'app vars file-to-open) vars)))
+			   (text-poses . ,())))))
     (let ((cxt (cons (start-thrd "GUI Thread" 'app vars file-to-open) vars)))
       (setup-keys-read cxt)
       cxt)))
