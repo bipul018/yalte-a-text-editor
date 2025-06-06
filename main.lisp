@@ -169,12 +169,13 @@
   `(cdr (assoc ,key ,assoc-list)))
 
 ;; fxn is called with those args
-(defun start-thrd (fxn shared-vars-assoc &rest cargs)
+(defun start-thrd (thread-name fxn shared-vars-assoc &rest cargs)
   (bt2:make-thread (lambda ()
 		     (let ((shared-vars shared-vars-assoc)
 			   (args cargs)
 			   (fn fxn))
-		       (apply fn (cons shared-vars args))))))
+		       (apply fn (cons shared-vars args))))
+		   :name thread-name))
 
 ;; A 'subscriber' and 'publisher' mechanism for key presses
 (defun collect-key-actions (fxn key-list)
@@ -295,6 +296,7 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 			   (cursor-pos . ,(cons 0 0))
 			   (text-poses . ())))))
     (let ((cxt (cons (start-thrd 'app vars file-to-open) vars)))
+    (let ((cxt (cons (start-thrd "GUI Thread" 'app vars file-to-open) vars)))
       (setup-keys-read cxt)
       cxt)))
 
@@ -307,7 +309,9 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 
 ;; A 'key-handler' , a probably temporary solution
 (defun run-handler (cxt)
-  (start-thrd (lambda (vars cxt)
+  (start-thrd "Key Event Handler Thread"
+	      (lambda (vars cxt)
+		(declare (ignorable vars))
 		(loop while (not (assoc-val 'to-quit (cdr cxt)))
 		      do (process-key-evt cxt)
 		      ;; A hack to not overwhelm CPU
