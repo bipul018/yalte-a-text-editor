@@ -226,12 +226,23 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   (let ((key-evts (replace-var-locked (cdr cxt) 'key-press-queue nil))
 	(cursor-pos (assoc-val 'cursor-pos (cdr cxt)))
 	(text-poses (assoc-val 'text-poses (cdr cxt))))
+
     (loop for key in key-evts
+	  ;; In case of left/right movements, first also try to clip first
+	  do (case key ((:key-right :key-left)
+			(setf (car cursor-pos)
+			      (min (car cursor-pos)
+				   (- (length (nth (cdr cursor-pos) text-poses)) 1)))))
 	  do (case key
 	       (:key-right (incf (car cursor-pos)))
 	       (:key-left (decf (car cursor-pos)))
 	       (:key-down (incf (cdr cursor-pos)))
 	       (:key-up (decf (cdr cursor-pos))))
+	  
+	  ;; Clip the cursors always to the 'leftmost' position
+	  do (setf (car cursor-pos)
+		   (max 0 (car cursor-pos)))
+	  ;; Clip the line number of the cursor
 	  do (setf (cdr cursor-pos)
 		   (min (max 0 (cdr cursor-pos))
 			(- (length text-poses) 1))))
