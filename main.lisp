@@ -376,7 +376,7 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   ;;        at the very least, 'cursor-pos' is shared between runs
   ;;        one possible soln is using , for each value, probably it all is set in stone at compile time otherwise
   ;; TODO:: If not called stop, does something weird to next run
-  (let ((vars (copy-list `((win-w . ,win-w) (win-h . ,win-h) (to-quit . ,nil)
+  (let ((vars (copy-tree `((win-w . ,win-w) (win-h . ,win-h) (to-quit . ,nil)
 			   (bg-col . ,bg-col) (txt-col . ,:black)
 			   (var-lock . ,(bt2:make-lock))
 			   (key-press-queue . ,nil) (key-press-list . ,nil)
@@ -386,13 +386,17 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 			   (text-lines . ,())))))
     (let ((cxt (cons (start-thrd "GUI Thread" 'run-app vars file-to-open) vars)))
       (setup-keys-read cxt)
-      cxt))
-  (load-font "fonts/CascadiaMono.ttf" 25))
+      cxt)))
+;;  (load-font "fonts/CascadiaMono.ttf" 25))
 
 (defun stop (thrd-obj)
   (setf (assoc-val 'to-quit (cdr thrd-obj)) t)
   (bt2:join-thread (car thrd-obj))
+  (rl:unload-font (assoc-val 'font *glob-font*))
+  (setf *glob-font* nil)
   (setf (assoc-val 'to-quit (cdr thrd-obj)) nil)
+  ;;(loop for it in (cdr thrd-obj)
+  ;;	do (setf (assoc-val (car it) (cdr thrd-obj)) nil))
   (setf (car thrd-obj) nil
 	(cdr thrd-obj) nil))
 
