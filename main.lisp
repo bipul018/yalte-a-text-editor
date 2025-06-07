@@ -46,27 +46,56 @@
 ;; Store by newlines
 ;; When writing to files, convert accordingly
 
-;; So text (for now) = list of strings
-(defun measure-text (text font-size)
-  " A raw text measuring fxn "
-  ;;(rl:measure-text-ex rl:load-font-ex(
-  (rl:measure-text text font-size))
+;; A global 'font', later to modularize better
+(defvar *glob-font* nil)
+(defun load-font (file-name font-size &optional cxt)
+  "
+Modifies the global font used, not a good design, I know.
+First loads the new font of the given size.
+Then, if the context is provided, then also updates that context's font positions
+"
+  (setf *glob-font*
+	(list (cons 'font (rl:load-font-ex file-name (round font-size) (cffi:null-pointer) 0))
+	      (cons 'font-size (coerce font-size 'single-float))
+	      (cons 'spacing (* (coerce font-size 'single-float) 0.1))))
+  (when cxt
+    (let* ((vars (cdr cxt))
+	   (new-poses (get-render-positions (assoc-val 'text-lines vars)
+					    (- (assoc-val 'win-w vars)
+					       (* 2 (car (assoc-val 'text-begin vars)))))))
+      (setf (assoc-val 'text-poses vars) new-poses))))
+;; Use this fxn to access the global font parameter
+(defun font-param (param-name)
+  (unless *glob-font*
+    (load-font "fonts/CascadiaMono.ttf" 25))
+  (when *glob-font*
+    (assoc-val param-name *glob-font*)))
 
-(defun get-char-width (char font-size)
+
+;; Whenver trying to modify font later on, also provide context
+
+;; So text (for now) = list of strings
+(defun measure-text (text)
+  " A raw text measuring fxn "
+  (rm:vx (rl:measure-text-ex (font-param 'font )
+			      text
+			      (font-param 'font-size )
+			      (font-param 'spacing ))))
+
+(defun get-char-width (char)
   ;;(declaim (type (standard-char char)
 ;;		 (number font-size)))
   (unless (char= char #\newline)
     (if (char= char #\return) 0
-	(let ((one-sp-len (measure-text " " font-size))
-	      (two-sp-len (measure-text "  " font-size)))
-	  (+ (measure-text (format nil "~a" char) font-size)
+	(let ((one-sp-len (measure-text " "))
+	      (two-sp-len (measure-text "  ")))
+	  (+ (measure-text (format nil "~a" char))
 	     two-sp-len
 	     (* -2 one-sp-len))))))
 
 ;; Expects the text entries to not have any newlines 
-(defun render-text (rect text font-size color)
-  ;;(declaim (type (rl::rectangle rect)
-  ;;	 (number font-size)))
+(defun render-text (rect text color)
+  ;;(declaim (type (rl::rectangle rect)))
   (let ((r.x (rl:rectangle-x rect))
 	(r.y (rl:rectangle-y rect))
 	(r.w (rl:rectangle-width rect))
@@ -74,16 +103,19 @@
       (let ((p.x r.x) (p.y r.y))
 	(loop for ln in text
 	      do (loop for ch across ln
-		    for ch-wid = (get-char-width ch font-size)
-		    do (when (>= (+ ch-wid p.x) r.w)
-			 (setf p.x r.x)
-			 (incf p.y font-size))
-		    do (rl:draw-text
-			(format nil "~a" ch)
-			p.x p.y font-size color)
-		    do (unless (>= (+ ch-wid p.x) r.w)
-			 (incf p.x ch-wid)))
-	      do (incf p.y font-size)
+		       for ch-wid = (get-char-width ch)
+		       do (when (>= (+ ch-wid p.x) r.w)
+			    (setf p.x r.x)
+			    (incf p.y (font-param 'font-size )))
+		       do (rl:draw-text-ex (font-param 'font )
+					   (format nil "~a" ch)
+					   (rm:vec2 p.x p.y)
+					   (font-param 'font-size )
+					   (font-param 'spacing )
+					   color)
+		       do (unless (>= (+ ch-wid p.x) r.w)
+			    (incf p.x ch-wid)))
+	      do (incf p.y (font-param 'font-size ))
 	      do (setf p.x r.x)
 	      while (< p.y r.h)))))
 
@@ -92,24 +124,24 @@
 ;; Given a desired width and font size and ... (later maybe some settings such as orientation)
 ;;   returns a parallel kind of list of vector2
 ;; Well, not exactly parallel, each line must have one more position
-(defun get-render-positions (text-lines width font-size)
+(defun get-render-positions (text-lines width)
   (let ((p.x 0) (p.y 0))
 	(loop for ln in text-lines
 	      ;; The additonal 'null' at the end is a hack
 	      collect (loop for ch across (format nil "~a~a" ln (code-char 0))
-		    for ch-wid = (get-char-width ch font-size)
+		    for ch-wid = (get-char-width ch)
 		    do (when (>= (+ ch-wid p.x) width)
 			 (setf p.x 0)
-			 (incf p.y font-size))
+			 (incf p.y (font-param 'font-size )))
 			    collect (cons p.x p.y)
 		    do (unless (>= (+ ch-wid p.x) width)
 			 (incf p.x ch-wid)))
-	      do (incf p.y font-size)
+	      do (incf p.y (font-param 'font-size ))
 	      do (setf p.x 0))))
 	      ;;while (< p.y r.h))))
 
 ;; Draw text but using pre-generated positions
-(defun render-text-pos (rect text-lines text-poses font-size color)
+(defun render-text-pos (rect text-lines text-poses color)
   ;; First find the first visible line
   ;; Then start to draw character by character
   ;; Draw until the line is still visible (more efficient on rendering)
@@ -118,16 +150,19 @@
 	for lnp in text-poses
 	do (loop for ch  across ln
 		 for chp in lnp
-		 do (rl:draw-text
-		     (format nil "~a" ch)
-		     (+ (car chp) (rl:rectangle-x rect))
-		     (+ (cdr chp) (rl:rectangle-y rect))
-		     font-size color))))
+		 do (rl:draw-text-ex (font-param 'font )
+				     (format nil "~a" ch)
+				     (rm:vec2
+				      (+ (car chp) (rl:rectangle-x rect))
+				      (+ (cdr chp) (rl:rectangle-y rect)))
+				     (font-param 'font-size )
+				     (font-param 'spacing )
+				     color))))
 
-(defun render-text-2 (rect text-lines font-size color)
+(defun render-text-2 (rect text-lines color)
   (render-text-pos rect text-lines
-		   (get-render-positions text-lines (rl:rectangle-width rect) font-size)
-		   font-size color))
+		   (get-render-positions text-lines (rl:rectangle-width rect))
+		   color))
 
 ;; Gives previous and next cursors
 (defun offset-cursor-fwd (curr-pos text-lines-or-poses offset)
@@ -138,7 +173,7 @@
 
 ;; Draw the cursor
 ;;TODO:: Current model doesnot care much about inter-char spacing, fix that
-(defun render-cursor (text-poses cursor begin-pos font-size color &key (blink-ms 500))
+(defun render-cursor (text-poses cursor begin-pos color &key (blink-ms 500))
   (when (<= (/ (rem (* 1000.0 (rl:get-time)) blink-ms) blink-ms) 0.5)
     (let* ((line-n (cdr cursor))
 	   (line (nth line-n text-poses))
@@ -155,7 +190,7 @@
        (+ 1 (if (>= (+ 1 offset) (length line))
 		10
 		(- (car (nth (+ 1 offset) line)) p.x)))
-       font-size
+       (font-param 'font-size )
        color))))
 		 
 ;; Function to pre-process a single bulk text
@@ -178,9 +213,6 @@
     (dolist (line lines)
       (format stream "~A~%" line))))
 
-;; Helper that accesses the value directly for a assoc list
-(defmacro assoc-val (key assoc-list)
-  `(cdr (assoc ,key ,assoc-list)))
 
 ;; fxn is called with those args
 (defun start-thrd (thread-name fxn shared-vars-assoc &rest cargs)
@@ -270,12 +302,14 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
       (replace-var-locked (cdr cxt) 'cursor-pos cursor-pos))
     cursor-pos))
 
+
+
 ;; NEXT:: Need to add a lock variable, list of key presses subscribed and the notif queue,
 ;;        cursor pos as variables
 ;; Use the `for .. = (assoc-val '.. vars)` in the loop for read only shared variable
 ;; Later, upgrade the text lines and positions to be also shared variables
-(defun app (vars file-to-open)
-  " vars: win-w win-h bg-col txt-col to-quit var-lock key-press-queue key-press-list cursor-pos text-poses"
+(defun run-app (vars file-to-open)
+  " vars: win-w win-h bg-col txt-col to-quit var-lock key-press-queue key-press-list cursor-pos text-poses text-lines text-begin"
   (format t "To open the file `~a`, the vars are: ~a~%" file-to-open vars)
   ;; These vars cannot be updated that easily, they need 'double-buffering'
   (let* ((win-w (assoc-val 'win-w vars))
@@ -301,17 +335,20 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 				(rl:is-key-down key)))))
     (rl:with-window (win-w win-h (format nil "file:~a" file-to-open))
       (rl:set-target-fps 60)
-      ;; These vars probably need to be made shared variables again later
-      (let* ((text-lines (uiop:read-file-lines file-to-open))
-	     (font-size 25)
-	     (text-begin (cons 10 100))
-	     (text-poses (get-render-positions text-lines
-					       (- (assoc-val 'win-w vars) (* 2 (car text-begin)))
-					       font-size)))
 	;; TODO:: After editing part starts, all these are going to be controlled from outside
-	(setf (assoc-val 'text-poses vars) text-poses)
+	(setf (assoc-val 'text-begin vars) (cons 10 100))
+	(setf (assoc-val 'text-lines vars) (uiop:read-file-lines file-to-open))
+	(setf (assoc-val 'text-poses vars)
+	      (get-render-positions (assoc-val 'text-lines vars)
+				    (- (assoc-val 'win-w vars)
+				       (* 2 (car (assoc-val 'text-begin vars))))))
+
 	(loop while (not (or (assoc-val 'to-quit vars) (rl:window-should-close)))
 	      ;; These vars are to be 'refreshed' every loop, in essence 'hot-reloaded'
+	      for text-begin = (assoc-val 'text-begin vars)
+	      for text-lines = (assoc-val 'text-lines vars)
+	      for text-poses = (assoc-val 'text-poses vars)
+	      
 	      for cursor-pos = (assoc-val 'cursor-pos vars)
 	      for bg-col = (assoc-val 'bg-col vars)
 	      for txt-col = (assoc-val 'txt-col vars)
@@ -327,15 +364,14 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 	      ;; Draw according to the info available
 	      do (rl:with-drawing (rl:clear-background bg-col)
 		   (rl:draw-fps 10 10)
-		   (render-cursor text-poses cursor-pos text-begin
-				  font-size :red)
+		   (render-cursor text-poses cursor-pos text-begin :red)
 		   ;; TODO:: Later need to make it so that win-w and win-h are also shared properly
 		   (render-text-pos (rl:make-rectangle
 				     :x (car text-begin) :y (cdr text-begin)
 				     :width (- win-w (* 2 (car text-begin)))
 				     :height (- win-h (* 2 (cdr text-begin))))
-				    text-lines text-poses font-size txt-col)))
-	(setf (assoc-val 'to-quit vars) t)))))
+				    text-lines text-poses txt-col)))
+	(setf (assoc-val 'to-quit vars) t))))
 
 
 (defun start (file-to-open &key (win-w 800) (win-h 800) (bg-col :raywhite))
@@ -348,10 +384,13 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 			   (var-lock . ,(bt2:make-lock))
 			   (key-press-queue . ,nil) (key-press-list . ,nil)
 			   (cursor-pos . ,(cons 0 0))
-			   (text-poses . ,())))))
-    (let ((cxt (cons (start-thrd "GUI Thread" 'app vars file-to-open) vars)))
+			   (text-poses . ,())
+			   (text-begin . ,nil)
+			   (text-lines . ,())))))
+    (let ((cxt (cons (start-thrd "GUI Thread" 'run-app vars file-to-open) vars)))
       (setup-keys-read cxt)
-      cxt)))
+      cxt))
+  (load-font "fonts/CascadiaMono.ttf" 25))
 
 (defun stop (thrd-obj)
   (setf (assoc-val 'to-quit (cdr thrd-obj)) t)
@@ -370,3 +409,4 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 		      ;; A hack to not overwhelm CPU
 		      do (sleep 0.08)))
 	      '() cxt))
+(defvar *app* nil)
