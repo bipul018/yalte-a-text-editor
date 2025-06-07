@@ -125,20 +125,19 @@ Then, if the context is provided, then also updates that context's font position
 ;;   returns a parallel kind of list of vector2
 ;; Well, not exactly parallel, each line must have one more position
 (defun get-render-positions (text-lines width)
-  (let ((p.x 0) (p.y 0))
+  (let ((p (rm:vec 0 0)))
 	(loop for ln in text-lines
 	      ;; The additonal 'null' at the end is a hack
 	      collect (loop for ch across (format nil "~a~a" ln (code-char 0))
 		    for ch-wid = (get-char-width ch)
-		    do (when (>= (+ ch-wid p.x) width)
-			 (setf p.x 0)
-			 (incf p.y (font-param 'font-size )))
-			    collect (cons p.x p.y)
-		    do (unless (>= (+ ch-wid p.x) width)
-			 (incf p.x ch-wid)))
-	      do (incf p.y (font-param 'font-size ))
-	      do (setf p.x 0))))
-	      ;;while (< p.y r.h))))
+		    do (when (>= (+ ch-wid (rm:vx p)) width)
+			 (setf (rm:vx p) 0)
+			 (incf (rm:vy p) (font-param 'font-size )))
+			    collect (rm:vec (rm:vx p) (rm:vy p))
+		    do (unless (>= (+ ch-wid (rm:vx p)) width)
+			 (incf (rm:vx p) ch-wid)))
+	      do (incf (rm:vy p) (font-param 'font-size ))
+	      do (setf (rm:vx p) 0))))
 
 ;; Draw text but using pre-generated positions
 (defun render-text-pos (rect text-lines text-poses color)
@@ -153,8 +152,8 @@ Then, if the context is provided, then also updates that context's font position
 		 do (rl:draw-text-ex (font-param 'font )
 				     (format nil "~a" ch)
 				     (rm:vec2
-				      (+ (car chp) (rl:rectangle-x rect))
-				      (+ (cdr chp) (rl:rectangle-y rect)))
+				      (+ (rm:vx chp) (rl:rectangle-x rect))
+				      (+ (rm:vy chp) (rl:rectangle-y rect)))
 				     (font-param 'font-size )
 				     (font-param 'spacing )
 				     color))))
@@ -178,19 +177,17 @@ Then, if the context is provided, then also updates that context's font position
     (let* ((line-n (cdr cursor))
 	   (line (nth line-n text-poses))
 	   (offset (min (car cursor) (- (length line) 1)))
-	   (pos (nth offset line))
-	   (p.x (car pos))
-	   (p.y (cdr pos)))
+	   (pos (nth offset line)))
       ;; start x,y is p.x,p.y
       ;; end y is p.y + font-size
       ;; for end x, if end of line, do something else
       ;;  else, end x is begin x of next char
-      (rl:draw-rectangle
-       (+ (car begin-pos) p.x -1) (+ (cdr begin-pos) p.y)
-       (+ 1 (if (>= (+ 1 offset) (length line))
-		10
-		(- (car (nth (+ 1 offset) line)) p.x)))
-       (font-param 'font-size )
+      (rl:draw-rectangle-v
+       (rm:v+ pos (rm:vec (- (car begin-pos) 1) (cdr begin-pos)))
+       (rm:vec (+ 1 (if (>= (+ 1 offset) (length line))
+			10
+			(- (rm:vx (nth (+ 1 offset) line)) (rm:vx pos))))
+	       (font-param 'font-size))
        color))))
 		 
 ;; Function to pre-process a single bulk text
