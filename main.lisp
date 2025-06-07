@@ -213,7 +213,8 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   " A fxn to be used in GUI thread that fills the key event queue "
   (let ((new-keys (collect-key-actions key-fn test-keys)))
     (when new-keys
-      (append-var-locked var-list var-name new-keys))))
+      (append-var-locked var-list var-name new-keys))
+    new-keys))
 
 (defun setup-keys-read (cxt)
   " To be used before running GUI thread, to setup keys, or later maybe not "
@@ -263,8 +264,27 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   " vars: win-w win-h bg-col txt-col to-quit var-lock key-press-queue key-press-list cursor-pos text-poses"
   (format t "To open the file `~a`, the vars are: ~a~%" file-to-open vars)
   ;; These vars cannot be updated that easily, they need 'double-buffering'
-  (let ((win-w (assoc-val 'win-w vars))
-	(win-h (assoc-val 'win-h vars)))
+  (let* ((win-w (assoc-val 'win-w vars))
+	 (win-h (assoc-val 'win-h vars))
+	 ;; A way to `rate-limit` key presses
+	 ;; A list of keys in the 'cooldown' period
+	 (cooled-keys nil)
+	 ;; TODO:: This method might not work well
+	 ;;        You might have to 'refresh' each frame's key events to make it proper
+	 (fill-recent (lambda (curr-keys)
+			;; Removal
+			(setf cooled-keys
+			      ;; The number is the 'cooldown period'
+			      (remove-if (lambda (k) (> (- (rl:get-time) (cdr k)) 0.2))
+					 cooled-keys))
+			;; Insertion
+			(loop for k in curr-keys
+			      do (setf cooled-keys
+				       (cons (cons k (rl:get-time)) cooled-keys)))))
+	 ;; The function to use to check for key presses that are not in cooldown
+	 (check-key-down (lambda (key)
+			   (and (not (assoc-val key cooled-keys))
+				(rl:is-key-down key)))))
     (rl:with-window (win-w win-h (format nil "file:~a" file-to-open))
       (rl:set-target-fps 60)
       ;; These vars probably need to be made shared variables again later
@@ -284,7 +304,10 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 	      for key-press-list = (assoc-val 'key-press-list vars)
 
 	      ;; Update the keybindings
-	      do (publish-key-evt vars #'rl:is-key-released 'key-press-queue key-press-list)
+	      ;;do (publish-key-evt vars #'rl:is-key-released 'key-press-queue key-press-list)
+	      do (funcall fill-recent
+			  (publish-key-evt vars check-key-down 'key-press-queue key-press-list))
+
 	      ;; This setup might techinically cause delay in UI updates, need to research more
 
 	      ;; Draw according to the info available
