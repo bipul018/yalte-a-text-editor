@@ -1,12 +1,26 @@
 (ql:quickload :cl-raylib)
 (ql:quickload :cffi)
 (ql:quickload :bordeaux-threads)
+(ql:quickload :3d-vectors)
+(ql:quickload :3d-matrices)
+
+
+;; A mechanism used to 'export' all the math items under a single package
+(defpackage :vec-math
+  (:use :cl :3d-vectors :3d-matrices))
+(in-package :vec-math)
+(do-external-symbols (sym (find-package :3d-vectors)) (export sym))
+(do-external-symbols (sym (find-package :3d-matrices)) (export sym))
 
 (defpackage :editr
   ;(:use :cl)
   (:use :cl :cl-user)
-  (:local-nicknames (:rl :raylib)))
+  (:local-nicknames (:rl :raylib) (:rm :vec-math)))
 (in-package :editr)
+
+;; Helper that accesses the value directly for a assoc list
+(defmacro assoc-val (key assoc-list)
+  `(cdr (assoc ,key ,assoc-list)))
 
 (defun random-item (node-wt-list)
   "Accepts a list of node and weight cons cell and returns the random choice from that"
