@@ -18,6 +18,8 @@
   (:local-nicknames (:rl :raylib) (:rm :vec-math)))
 (in-package :editr)
 
+(load "task-channels.lisp")
+
 ;; Helper that accesses the value directly for a assoc list
 (defmacro assoc-val (key assoc-list)
   `(cdr (assoc ,key ,assoc-list)))
