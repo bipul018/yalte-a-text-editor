@@ -16,9 +16,9 @@
   ;(:use :cl)
   (:use :cl :cl-user)
   (:local-nicknames (:rl :raylib) (:rm :vec-math)))
-(in-package :editr)
 
 (load "task-channels.lisp")
+(in-package :editr)
 
 ;; Helper that accesses the value directly for a assoc list
 (defmacro assoc-val (key assoc-list)
@@ -273,7 +273,6 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 
 (defun setup-keys-read (cxt)
   " To be used before running GUI thread, to setup keys, or later maybe not "
-  ;;(when (and cxt (cdr cxt) (assoc-val 'var-lock (cdr cxt)))
   (when (and cxt (cdr cxt) (app-args-var-lock (cdr cxt)))
     (replace-var-locked (cdr cxt) 'key-press-list
 			'(:key-right :key-left :key-up :key-down))))
@@ -305,7 +304,6 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 			(- (length text-poses) 1))))
 
     ;; TODO:: Add logic to pan around the screen as well here after that loop
-    
     (unless (and (= (car cursor-pos) (car (app-args-cursor-pos (cdr cxt))))
 		 (= (cdr cursor-pos) (cdr (app-args-cursor-pos (cdr cxt)))))
       ;; TODO:: The following operation might not need a lock at all
@@ -365,7 +363,6 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 	      for key-press-list = (app-args-key-press-list vars)
 
 	      ;; Update the keybindings
-	      ;;do (publish-key-evt vars #'rl:is-key-released 'key-press-queue key-press-list)
 	      do (funcall fill-recent
 			  (publish-key-evt vars check-key-down 'key-press-queue key-press-list))
 
@@ -396,18 +393,9 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 	       :key-press-queue (list) :key-press-list (list)
 	       :cursor-pos (cons 0 0) :text-begin nil
 	       :text-poses (list) :text-lines (list))))
-  ;;(let ((vars (copy-tree `((win-w . ,win-w) (win-h . ,win-h) (to-quit . ,nil)
-;;			   (bg-col . ,bg-col) (txt-col . ,:black)
-;;			   (var-lock . ,(bt2:make-lock))
-;;			   (key-press-queue . ,nil) (key-press-list . ,nil)
-;;			   (cursor-pos . ,(cons 0 0))
-;;			   (text-poses . ,())
-;;			   (text-begin . ,nil)
-;;			   (text-lines . ,())))))
     (let ((cxt (cons (start-thrd "GUI Thread" 'run-app vars file-to-open) vars)))
       (setup-keys-read cxt)
       cxt)))
-;;  (load-font "fonts/CascadiaMono.ttf" 25))
 
 (defun stop (thrd-obj)
   (setf (app-args-to-quit (cdr thrd-obj)) t)
@@ -415,8 +403,6 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   (rl:unload-font (assoc-val 'font *glob-font*))
   (setf *glob-font* nil)
   (setf (app-args-to-quit (cdr thrd-obj)) nil)
-  ;;(loop for it in (cdr thrd-obj)
-  ;;	do (setf (assoc-val (car it) (cdr thrd-obj)) nil))
   (setf (car thrd-obj) nil
 	(cdr thrd-obj) nil))
 
