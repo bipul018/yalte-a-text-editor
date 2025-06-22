@@ -41,11 +41,11 @@
 (defun execute-tasks (tasks)
   ;; TODO:: Implement mechanisms of timeouts and task limiting
   (unless (task-dispatcher-paused-p tasks)
-    (let ((tasks ()))
+    (let ((job-list ()))
       (bt2:with-lock-held ((task-dispatcher-lock tasks))
-	(setf tasks (task-dispatcher-queue tasks))
+	(setf job-list (task-dispatcher-queue tasks))
 	(setf (task-dispatcher-queue tasks) ()))
-      (mapcar #'funcall tasks))))
+      (mapcar #'funcall job-list))))
 
 ;; A simple 'task loop' consumer
 (defun run-task-loop (tasks)

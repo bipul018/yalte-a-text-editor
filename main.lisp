@@ -51,7 +51,8 @@
   (var-lock)
   (key-press-queue) (key-press-list)
   (cursor-pos) (text-begin)
-  (text-poses) (text-lines))
+  (text-poses) (text-lines)
+  (tasks-before-draw) (tasks-top-draw) (tasks-bot-draw))
 
 
 ;; First split by newlines
@@ -368,8 +369,11 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 
 	      ;; This setup might techinically cause delay in UI updates, need to research more
 
+	      do (execute-tasks (app-args-tasks-before-draw vars))
+
 	      ;; Draw according to the info available
 	      do (rl:with-drawing (rl:clear-background bg-col)
+		   (execute-tasks (app-args-tasks-top-draw vars))
 		   (rl:draw-fps 10 10)
 		   (render-cursor text-poses cursor-pos text-begin :red)
 		   ;; TODO:: Later need to make it so that win-w and win-h are also shared properly
@@ -377,7 +381,8 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 				     :x (car text-begin) :y (cdr text-begin)
 				     :width (- win-w (* 2 (car text-begin)))
 				     :height (- win-h (* 2 (cdr text-begin))))
-				    text-lines text-poses txt-col)))
+				    text-lines text-poses txt-col)
+		   (execute-tasks (app-args-tasks-bot-draw vars))))
 	(setf (app-args-to-quit vars) t))))
 
 
@@ -386,13 +391,16 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   ;;        at the very least, 'cursor-pos' is shared between runs
   ;;        one possible soln is using , for each value, probably it all is set in stone at compile time otherwise
   ;; TODO:: If not called stop, does something weird to next run
-  (let ((vars (make-app-args
-	       :win-w win-w :win-h win-h :to-quit nil
-	       :bg-col bg-col :txt-col :black
-	       :var-lock (bt2:make-lock)
-	       :key-press-queue (list) :key-press-list (list)
-	       :cursor-pos (cons 0 0) :text-begin nil
-	       :text-poses (list) :text-lines (list))))
+  (let ((vars (copy-tree (make-app-args
+			  :win-w win-w :win-h win-h :to-quit nil
+			  :bg-col bg-col :txt-col :black
+			  :var-lock (bt2:make-lock)
+			  :key-press-queue (list) :key-press-list (list)
+			  :cursor-pos (cons 0 0) :text-begin nil
+			  :text-poses (list) :text-lines (list)
+			  :tasks-before-draw (make-task-dispatcher :lock (bt2:make-lock))
+			  :tasks-top-draw (make-task-dispatcher :lock (bt2:make-lock))
+			  :tasks-bot-draw (make-task-dispatcher :lock (bt2:make-lock))))))
     (let ((cxt (cons (start-thrd "GUI Thread" 'run-app vars file-to-open) vars)))
       (setup-keys-read cxt)
       cxt)))
@@ -400,7 +408,7 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 (defun stop (thrd-obj)
   (setf (app-args-to-quit (cdr thrd-obj)) t)
   (bt2:join-thread (car thrd-obj))
-  (rl:unload-font (assoc-val 'font *glob-font*))
+  ;; (rl:unload-font (assoc-val 'font *glob-font*))
   (setf *glob-font* nil)
   (setf (app-args-to-quit (cdr thrd-obj)) nil)
   (setf (car thrd-obj) nil
