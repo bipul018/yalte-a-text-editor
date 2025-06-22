@@ -44,6 +44,16 @@
 	  do (return-from daloop (car node))
 	  finally (return-from daloop (car node)))))
 
+;; The 'app' struct
+(defstruct app-args
+  (win-w) (win-h) (to-quit)
+  (bg-col) (txt-col)
+  (var-lock)
+  (key-press-queue) (key-press-list)
+  (cursor-pos) (text-begin)
+  (text-poses) (text-lines))
+
+
 ;; First split by newlines
 ;; Store by newlines
 ;; When writing to files, convert accordingly
@@ -62,10 +72,10 @@ Then, if the context is provided, then also updates that context's font position
 	      (cons 'spacing (* (coerce font-size 'single-float) 0.1))))
   (when cxt
     (let* ((vars (cdr cxt))
-	   (new-poses (get-render-positions (assoc-val 'text-lines vars)
-					    (- (assoc-val 'win-w vars)
-					       (* 2 (car (assoc-val 'text-begin vars)))))))
-      (setf (assoc-val 'text-poses vars) new-poses))))
+	   (new-poses (get-render-positions (app-args-text-lines vars)
+					    (- (app-args-win-w vars)
+					       (* 2 (car (app-args-text-begin vars)))))))
+      (setf (app-args-text-poses vars) new-poses))))
 ;; Use this fxn to access the global font parameter
 (defun font-param (param-name)
   (unless *glob-font*
@@ -235,17 +245,17 @@ Then, if the context is provided, then also updates that context's font position
 ;; Expects the mutex to be yet another var with a particular name 'var-lock'
 (defun replace-var-locked (var-list var-sym new-val)
   ;; TODO:: To be replaced with something like conditional var later
-  (bt2:with-lock-held ((assoc-val 'var-lock var-list))
-    (let ((old-val (assoc-val var-sym var-list)))
-      (setf (assoc-val var-sym var-list) new-val)
+  (bt2:with-lock-held ((app-args-var-lock var-list))
+    (let ((old-val (slot-value var-list var-sym)))
+      (setf (slot-value var-list var-sym) new-val)
       old-val)))
 
 ;; Used to atomically append items to the list, assumes 'var-sym' is pointing to a list 
 (defun append-var-locked (var-list var-sym new-val)
   ;; TODO:: To be replaced with something like conditional var later
-  (bt2:with-lock-held ((assoc-val 'var-lock var-list))
-    (let ((old-val (assoc-val var-sym var-list)))
-      (setf (assoc-val var-sym var-list) (append old-val new-val))
+  (bt2:with-lock-held ((app-args-var-lock var-list))
+    (let ((old-val (slot-value var-list var-sym)))
+      (setf (slot-value var-list var-sym) (append old-val new-val))
       old-val)))
 
 "
@@ -263,15 +273,16 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 
 (defun setup-keys-read (cxt)
   " To be used before running GUI thread, to setup keys, or later maybe not "
-  (when (and cxt (cdr cxt) (assoc-val 'var-lock (cdr cxt)))
+  ;;(when (and cxt (cdr cxt) (assoc-val 'var-lock (cdr cxt)))
+  (when (and cxt (cdr cxt) (app-args-var-lock (cdr cxt)))
     (replace-var-locked (cdr cxt) 'key-press-list
 			'(:key-right :key-left :key-up :key-down))))
 
 (defun process-key-evt (cxt)
   " To be used in non GUI side, that processes the key events "
   (let ((key-evts (replace-var-locked (cdr cxt) 'key-press-queue nil))
-	(cursor-pos (assoc-val 'cursor-pos (cdr cxt)))
-	(text-poses (assoc-val 'text-poses (cdr cxt))))
+	(cursor-pos (app-args-cursor-pos (cdr cxt)))
+	(text-poses (app-args-text-poses (cdr cxt))))
 
     (loop for key in key-evts
 	  ;; In case of left/right movements, first also try to clip first
@@ -295,8 +306,8 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 
     ;; TODO:: Add logic to pan around the screen as well here after that loop
     
-    (unless (and (= (car cursor-pos) (car (assoc-val 'cursor-pos (cdr cxt))))
-		 (= (cdr cursor-pos) (cdr (assoc-val 'cursor-pos (cdr cxt)))))
+    (unless (and (= (car cursor-pos) (car (app-args-cursor-pos (cdr cxt))))
+		 (= (cdr cursor-pos) (cdr (app-args-cursor-pos (cdr cxt)))))
       ;; TODO:: The following operation might not need a lock at all
       (replace-var-locked (cdr cxt) 'cursor-pos cursor-pos))
     cursor-pos))
@@ -311,8 +322,8 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   " vars: win-w win-h bg-col txt-col to-quit var-lock key-press-queue key-press-list cursor-pos text-poses text-lines text-begin"
   (format t "To open the file `~a`, the vars are: ~a~%" file-to-open vars)
   ;; These vars cannot be updated that easily, they need 'double-buffering'
-  (let* ((win-w (assoc-val 'win-w vars))
-	 (win-h (assoc-val 'win-h vars))
+  (let* ((win-w (app-args-win-w vars))
+	 (win-h (app-args-win-h vars))
 	 ;; A way to `rate-limit` key presses
 	 ;; A list of keys in the 'cooldown' period
 	 (cooled-keys nil)
@@ -335,23 +346,23 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
     (rl:with-window (win-w win-h (format nil "file:~a" file-to-open))
       (rl:set-target-fps 60)
 	;; TODO:: After editing part starts, all these are going to be controlled from outside
-	(setf (assoc-val 'text-begin vars) (cons 10 100))
-	(setf (assoc-val 'text-lines vars) (uiop:read-file-lines file-to-open))
-	(setf (assoc-val 'text-poses vars)
-	      (get-render-positions (assoc-val 'text-lines vars)
-				    (- (assoc-val 'win-w vars)
-				       (* 2 (car (assoc-val 'text-begin vars))))))
+	(setf (app-args-text-begin vars) (cons 10 100))
+	(setf (app-args-text-lines vars) (uiop:read-file-lines file-to-open))
+	(setf (app-args-text-poses vars)
+	      (get-render-positions (app-args-text-lines vars)
+				    (- (app-args-win-w vars)
+				       (* 2 (car (app-args-text-begin vars))))))
 
-	(loop while (not (or (assoc-val 'to-quit vars) (rl:window-should-close)))
+	(loop while (not (or (app-args-to-quit vars) (rl:window-should-close)))
 	      ;; These vars are to be 'refreshed' every loop, in essence 'hot-reloaded'
-	      for text-begin = (assoc-val 'text-begin vars)
-	      for text-lines = (assoc-val 'text-lines vars)
-	      for text-poses = (assoc-val 'text-poses vars)
+	      for text-begin = (app-args-text-begin vars)
+	      for text-lines = (app-args-text-lines vars)
+	      for text-poses = (app-args-text-poses vars)
 	      
-	      for cursor-pos = (assoc-val 'cursor-pos vars)
-	      for bg-col = (assoc-val 'bg-col vars)
-	      for txt-col = (assoc-val 'txt-col vars)
-	      for key-press-list = (assoc-val 'key-press-list vars)
+	      for cursor-pos = (app-args-cursor-pos vars)
+	      for bg-col = (app-args-bg-col vars)
+	      for txt-col = (app-args-txt-col vars)
+	      for key-press-list = (app-args-key-press-list vars)
 
 	      ;; Update the keybindings
 	      ;;do (publish-key-evt vars #'rl:is-key-released 'key-press-queue key-press-list)
@@ -370,7 +381,7 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
 				     :width (- win-w (* 2 (car text-begin)))
 				     :height (- win-h (* 2 (cdr text-begin))))
 				    text-lines text-poses txt-col)))
-	(setf (assoc-val 'to-quit vars) t))))
+	(setf (app-args-to-quit vars) t))))
 
 
 (defun start (file-to-open &key (win-w 800) (win-h 800) (bg-col :raywhite))
@@ -378,25 +389,32 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   ;;        at the very least, 'cursor-pos' is shared between runs
   ;;        one possible soln is using , for each value, probably it all is set in stone at compile time otherwise
   ;; TODO:: If not called stop, does something weird to next run
-  (let ((vars (copy-tree `((win-w . ,win-w) (win-h . ,win-h) (to-quit . ,nil)
-			   (bg-col . ,bg-col) (txt-col . ,:black)
-			   (var-lock . ,(bt2:make-lock))
-			   (key-press-queue . ,nil) (key-press-list . ,nil)
-			   (cursor-pos . ,(cons 0 0))
-			   (text-poses . ,())
-			   (text-begin . ,nil)
-			   (text-lines . ,())))))
+  (let ((vars (make-app-args
+	       :win-w win-w :win-h win-h :to-quit nil
+	       :bg-col bg-col :txt-col :black
+	       :var-lock (bt2:make-lock)
+	       :key-press-queue (list) :key-press-list (list)
+	       :cursor-pos (cons 0 0) :text-begin nil
+	       :text-poses (list) :text-lines (list))))
+  ;;(let ((vars (copy-tree `((win-w . ,win-w) (win-h . ,win-h) (to-quit . ,nil)
+;;			   (bg-col . ,bg-col) (txt-col . ,:black)
+;;			   (var-lock . ,(bt2:make-lock))
+;;			   (key-press-queue . ,nil) (key-press-list . ,nil)
+;;			   (cursor-pos . ,(cons 0 0))
+;;			   (text-poses . ,())
+;;			   (text-begin . ,nil)
+;;			   (text-lines . ,())))))
     (let ((cxt (cons (start-thrd "GUI Thread" 'run-app vars file-to-open) vars)))
       (setup-keys-read cxt)
       cxt)))
 ;;  (load-font "fonts/CascadiaMono.ttf" 25))
 
 (defun stop (thrd-obj)
-  (setf (assoc-val 'to-quit (cdr thrd-obj)) t)
+  (setf (app-args-to-quit (cdr thrd-obj)) t)
   (bt2:join-thread (car thrd-obj))
   (rl:unload-font (assoc-val 'font *glob-font*))
   (setf *glob-font* nil)
-  (setf (assoc-val 'to-quit (cdr thrd-obj)) nil)
+  (setf (app-args-to-quit (cdr thrd-obj)) nil)
   ;;(loop for it in (cdr thrd-obj)
   ;;	do (setf (assoc-val (car it) (cdr thrd-obj)) nil))
   (setf (car thrd-obj) nil
@@ -407,7 +425,7 @@ And the append-var-locked fxn can be used to 'fill' the queue atomically
   (start-thrd "Key Event Handler Thread"
 	      (lambda (vars cxt)
 		(declare (ignorable vars))
-		(loop while (not (assoc-val 'to-quit (cdr cxt)))
+		(loop while (not (app-args-to-quit (cdr cxt)))
 		      do (process-key-evt cxt)
 		      ;; A hack to not overwhelm CPU
 		      do (sleep 0.08)))
